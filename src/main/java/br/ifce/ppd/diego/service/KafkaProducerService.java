@@ -1,0 +1,20 @@
+package br.ifce.ppd.diego.service;
+
+
+import br.ifce.ppd.diego.locationchat.dto.MessageDTO;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class KafkaProducerService {
+
+    private final KafkaTemplate<String, MessageDTO> kafkaTemplate;
+
+    public KafkaProducerService(KafkaTemplate<String, MessageDTO> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendMessage(String topic, MessageDTO message) {
+        kafkaTemplate.send(topic, message);
+    }
+}
