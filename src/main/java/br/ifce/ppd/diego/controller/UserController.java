@@ -2,17 +2,25 @@ package br.ifce.ppd.diego.controller;
 
 import br.ifce.ppd.diego.locationchat.UserStatus;
 import br.ifce.ppd.diego.locationchat.dto.ContactDTO;
+import br.ifce.ppd.diego.locationchat.dto.MessageDTO;
 import br.ifce.ppd.diego.locationchat.identity.CommunicationType;
 import br.ifce.ppd.diego.locationchat.identity.User;
 import br.ifce.ppd.diego.repository.UserRepository;
 import br.ifce.ppd.diego.service.KafkaAdminService;
 import br.ifce.ppd.diego.utils.LocationUtils;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.time.Duration;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -21,10 +29,13 @@ public class UserController {
 
     private final UserRepository userRepository;
     private final KafkaAdminService kafkaAdminService;
+    private final Map<String, Object> kafkaConsumerProperties;
 
-    public UserController(UserRepository userRepository, KafkaAdminService kafkaAdminService) {
+    public UserController(UserRepository userRepository, KafkaAdminService kafkaAdminService,
+                          KafkaProperties kafkaProperties) {
         this.userRepository = userRepository;
         this.kafkaAdminService = kafkaAdminService;
+        this.kafkaConsumerProperties = kafkaProperties.buildConsumerProperties(null);
     }
 
     @PostMapping("/login")
@@ -69,26 +80,111 @@ public class UserController {
                 .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
+    @GetMapping("/{username}/offline-messages")
+    public ResponseEntity<List<MessageDTO>> getOfflineMessages(@PathVariable String username) {
+        String topic = "user-inbox-" + username;
+
+        Map<String, Object> props = new HashMap<>(this.kafkaConsumerProperties);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "temp-consumer-" + username + "-" + System.currentTimeMillis());
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        JsonDeserializer<MessageDTO> valueDeserializer = new JsonDeserializer<>(MessageDTO.class, false);
+
+        DefaultKafkaConsumerFactory<String, MessageDTO> factory = new DefaultKafkaConsumerFactory<>(
+                props,
+                new StringDeserializer(),
+                valueDeserializer
+        );
+
+        List<MessageDTO> messages = new ArrayList<>();
+        try (Consumer<String, MessageDTO> consumer = factory.createConsumer()) {
+            consumer.subscribe(Collections.singletonList(topic));
+            consumer.poll(Duration.ofMillis(100));
+            ConsumerRecords<String, MessageDTO> records = consumer.poll(Duration.ofMillis(1000));
+            records.forEach(record -> messages.add(record.value()));
+            consumer.commitSync();
+        }
+
+        System.out.println("Encontradas " + messages.size() + " mensagens offline para " + username);
+        return ResponseEntity.ok(messages);
+    }
+
     @GetMapping("/{username}/contacts")
     public ResponseEntity<List<ContactDTO>> getContacts(@PathVariable String username) {
         return userRepository.findByUsername(username)
                 .map(currentUser -> {
-                    List<ContactDTO> contacts = userRepository.findAll().stream()
-                            .filter(otherUser -> !otherUser.getUsername().equals(currentUser.getUsername()))
-                            .map(otherUser -> {
+                    List<ContactDTO> contacts = currentUser.getContacts().stream()
+                            .map(contactUsername -> userRepository.findByUsername(contactUsername))
+                            .filter(java.util.Optional::isPresent)
+                            .map(java.util.Optional::get)
+                            .map(contactUser -> {
                                 double distance = LocationUtils.calculateDistance(
                                         currentUser.getLatitude(), currentUser.getLongitude(),
-                                        otherUser.getLatitude(), otherUser.getLongitude()
+                                        contactUser.getLatitude(), contactUser.getLongitude()
                                 );
-
-                                CommunicationType type = (otherUser.getStatus() == UserStatus.ONLINE && distance <= currentUser.getCommunicationRadiusKm())
+                                CommunicationType type = (contactUser.getStatus() == UserStatus.ONLINE && distance <= currentUser.getCommunicationRadiusKm())
                                         ? CommunicationType.SYNC
                                         : CommunicationType.ASYNC;
-
-                                return new ContactDTO(otherUser.getUsername(), otherUser.getStatus(), distance, type);
+                                return new ContactDTO(contactUser.getUsername(), contactUser.getStatus(), distance, type);
                             })
                             .collect(Collectors.toList());
                     return ResponseEntity.ok(contacts);
+                })
+                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    }
+
+    @PostMapping("/{username}/contacts")
+    public ResponseEntity<Void> addContact(@PathVariable String username, @RequestBody Map<String, String> payload) {
+        String contactUsername = payload.get("username");
+        var currentUserOpt = userRepository.findByUsername(username);
+        var contactUserOpt = userRepository.findByUsername(contactUsername);
+
+        if (currentUserOpt.isPresent() && contactUserOpt.isPresent()) {
+            currentUserOpt.get().addContact(contactUsername);
+            userRepository.save(currentUserOpt.get());
+            return new ResponseEntity<>(HttpStatus.OK);
+        }
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * --- NOVO ENDPOINT ---
+     * Remove um utilizador da lista de contactos de outro.
+     */
+    @DeleteMapping("/{username}/contacts/{contactUsername}")
+    public ResponseEntity<Void> removeContact(@PathVariable String username, @PathVariable String contactUsername) {
+        return userRepository.findByUsername(username)
+                .map(user -> {
+                    user.removeContact(contactUsername);
+                    userRepository.save(user);
+                    return new ResponseEntity<Void>(HttpStatus.OK);
+                })
+                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    }
+
+    /**
+     * --- NOVO ENDPOINT ---
+     * Retorna todos os utilizadores que NÃO estão na lista de contactos do utilizador atual.
+     */
+    @GetMapping("/{username}/discover")
+    public ResponseEntity<List<User>> getDiscoverableUsers(@PathVariable String username) {
+        return userRepository.findByUsername(username)
+                .map(currentUser -> {
+                    List<User> discoverable = userRepository.findAll().stream()
+                            .filter(otherUser -> !otherUser.getUsername().equals(username) && !currentUser.getContacts().contains(otherUser.getUsername()))
+                            .collect(Collectors.toList());
+                    return ResponseEntity.ok(discoverable);
+                })
+                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    }
+
+    @PutMapping("/{username}/radius")
+    public ResponseEntity<Void> updateRadius(@PathVariable String username, @RequestBody Map<String, Double> payload) {
+        return userRepository.findByUsername(username)
+                .map(user -> {
+                    user.setCommunicationRadiusKm(payload.get("radius"));
+                    userRepository.save(user);
+                    return new ResponseEntity<Void>(HttpStatus.OK);
                 })
                 .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }

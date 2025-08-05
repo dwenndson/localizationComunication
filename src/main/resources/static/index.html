@@ -20,6 +20,8 @@
         #login-view { max-width: 450px; margin: 100px auto; }
         #chat-view { display: none; }
         .contact-item .badge { font-size: 0.75rem; }
+        .sidebar-footer { margin-top: auto; }
+        .list-group { max-height: 200px; overflow-y: auto; }
     </style>
 </head>
 <body>
@@ -45,17 +47,30 @@
     <div class="chat-container">
         <!-- BARRA LATERAL -->
         <div class="sidebar">
-            <h5 class="mb-1">Utilizador: <span id="current-user" class="text-primary"></span></h5>
-            <p class="text-muted small">Raio: <span id="current-radius"></span> km</p>
-            <hr>
-            <h6>Contactos</h6>
-            <div id="contacts-list" class="list-group list-group-flush"></div>
+            <div>
+                <h5 class="mb-1">Utilizador: <span id="current-user" class="text-primary"></span></h5>
+                <p class="text-muted small">Raio: <span id="current-radius"></span> km</p>
+                <hr>
+                <h6>Os seus Contactos</h6>
+                <div id="contacts-list" class="list-group list-group-flush mb-3"></div>
+                <h6>Outros Utilizadores</h6>
+                <div id="discover-list" class="list-group list-group-flush"></div>
+            </div>
+            <!-- ÁREA DE ATUALIZAÇÃO -->
+            <div class="sidebar-footer pt-3">
+                <hr>
+                <div class="input-group mb-2">
+                    <input type="number" class="form-control" id="new-radius-input" placeholder="Novo raio (km)">
+                    <button class="btn btn-outline-secondary" id="update-radius-btn">Atualizar Raio</button>
+                </div>
+                <button class="btn btn-outline-primary w-100" id="update-location-btn">Atualizar Localização</button>
+                <div id="update-status" class="form-text text-center mt-2"></div>
+            </div>
         </div>
 
         <!-- ÁREA PRINCIPAL DO CHAT -->
         <div class="main-chat">
             <div class="messages-area" id="messages-area"></div>
-            <!-- Formulário de Envio -->
             <div class="send-form bg-light p-3 rounded">
                 <div class="input-group">
                     <input type="text" id="message-input" class="form-control" placeholder="Digite a sua mensagem...">

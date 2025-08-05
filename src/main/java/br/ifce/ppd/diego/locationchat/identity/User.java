@@ -1,10 +1,12 @@
 package br.ifce.ppd.diego.locationchat.identity;
 
 import br.ifce.ppd.diego.locationchat.UserStatus;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
 @NoArgsConstructor
@@ -16,6 +18,7 @@ public class User {
     private double latitude;
     private double longitude;
     private double communicationRadiusKm;
+    private Set<String> contacts = new HashSet<>();
 
     public User(String username, double latitude, double longitude, double communicationRadiusKm) {
         this.username = username;
@@ -23,5 +26,13 @@ public class User {
         this.longitude = longitude;
         this.communicationRadiusKm = communicationRadiusKm;
         this.status = UserStatus.ONLINE;
+    }
+
+    public void addContact(String username) {
+        this.contacts.add(username);
+    }
+
+    public void removeContact(String username) {
+        this.contacts.remove(username);
     }
 }
