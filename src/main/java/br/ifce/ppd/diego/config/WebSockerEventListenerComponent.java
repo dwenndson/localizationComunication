@@ -2,6 +2,7 @@ package br.ifce.ppd.diego.config;
 
 import br.ifce.ppd.diego.locationchat.UserStatus;
 import br.ifce.ppd.diego.repository.UserRepository;
+import br.ifce.ppd.diego.service.NotificationService;
 import org.springframework.context.ApplicationListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
@@ -12,9 +13,12 @@ import java.security.Principal;
 public class WebSockerEventListenerComponent implements ApplicationListener<SessionDisconnectEvent> {
 
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public WebSockerEventListenerComponent(UserRepository userRepository) {
+    public WebSockerEventListenerComponent(UserRepository userRepository,
+                                           NotificationService notificationService) {
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Override
@@ -27,6 +31,7 @@ public class WebSockerEventListenerComponent implements ApplicationListener<Sess
             user.setStatus(UserStatus.OFFLINE);
             userRepository.save(user);
             System.out.println("### Utilizador desconectado e status atualizado para OFFLINE: " + username);
+            notificationService.notifyContactsOfUpdate(username);
         });
     }
 }

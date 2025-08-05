@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentUserSpan = document.getElementById('current-user');
     const currentRadiusSpan = document.getElementById('current-radius');
     const contactsListDiv = document.getElementById('contacts-list');
-    const discoverListDiv = document.getElementById('discover-list'); // Nova lista
+    const discoverListDiv = document.getElementById('discover-list');
     const messagesArea = document.getElementById('messages-area');
     const recipientLabel = document.getElementById('recipient-label');
     const messageInput = document.getElementById('message-input');
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let stompClient = null;
     let currentUser = null;
     let selectedRecipient = null;
-    let contactsInterval = null;
+    // let contactsInterval = null; // REMOVIDO
 
     // --- Lógica de Login e Conexão ---
     loginBtn.addEventListener('click', () => {
@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentRadiusSpan.textContent = currentUser.communicationRadiusKm;
             connectWebSocket();
             refreshAllLists();
-            contactsInterval = setInterval(refreshAllLists, 10000);
+            // contactsInterval = setInterval(refreshAllLists, 10000); // REMOVIDO
         } catch (error) {
             loginStatus.textContent = error.message;
             loginBtn.disabled = false;
@@ -78,10 +78,18 @@ document.addEventListener('DOMContentLoaded', () => {
         stompClient = Stomp.over(socket);
         stompClient.connect({ login: currentUser.username },
             (frame) => {
+                // Subscreve à fila de mensagens
                 stompClient.subscribe(`/user/${currentUser.username}/queue/messages`, (message) => {
                     const msg = JSON.parse(message.body);
                     displayMessage(msg, false);
                 });
+
+                // Subscreve à nova fila de notificações
+                stompClient.subscribe(`/user/${currentUser.username}/queue/notifications`, (notification) => {
+                    console.log("Notificação de atualização recebida!");
+                    refreshAllLists();
+                });
+
                 fetchOfflineMessages();
             },
             (error) => { console.error('Erro de WebSocket:', error); }
@@ -97,7 +105,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Lógica de Gestão de Contactos ---
     async function refreshAllLists() {
         await updateContacts();
         await updateDiscoverList();
@@ -156,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.removeContact = async (event, contactUsername) => {
-        event.stopPropagation(); // Impede que o clique no botão selecione o contacto
+        event.stopPropagation();
         await fetch(`/api/users/${currentUser.username}/contacts/${contactUsername}`, { method: 'DELETE' });
         if (selectedRecipient && selectedRecipient.username === contactUsername) {
             selectedRecipient = null;
@@ -172,7 +179,6 @@ document.addEventListener('DOMContentLoaded', () => {
         event.currentTarget.classList.add('active');
     }
 
-    // --- Lógica de Atualização de Estado e Envio de Mensagens (sem alterações) ---
     updateRadiusBtn.addEventListener('click', async () => {
         const newRadius = parseFloat(newRadiusInput.value);
         if (!newRadius || newRadius <= 0) {
@@ -189,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRadiusSpan.textContent = newRadius;
         newRadiusInput.value = '';
         updateStatus.textContent = 'Raio atualizado!';
-        await refreshAllLists();
+        // await refreshAllLists(); // Removido - a notificação tratará disto
     });
     updateLocationBtn.addEventListener('click', () => {
         updateStatus.textContent = 'A obter nova localização...';
@@ -204,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentUser.latitude = latitude;
                 currentUser.longitude = longitude;
                 updateStatus.textContent = 'Localização atualizada!';
-                await refreshAllLists();
+                // await refreshAllLists(); // Removido - a notificação tratará disto
             },
             (error) => {
                 updateStatus.textContent = 'Falha ao obter localização.';

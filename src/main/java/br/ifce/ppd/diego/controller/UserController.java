@@ -7,6 +7,7 @@ import br.ifce.ppd.diego.locationchat.identity.CommunicationType;
 import br.ifce.ppd.diego.locationchat.identity.User;
 import br.ifce.ppd.diego.repository.UserRepository;
 import br.ifce.ppd.diego.service.KafkaAdminService;
+import br.ifce.ppd.diego.service.NotificationService;
 import br.ifce.ppd.diego.utils.LocationUtils;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -30,18 +31,19 @@ public class UserController {
     private final UserRepository userRepository;
     private final KafkaAdminService kafkaAdminService;
     private final Map<String, Object> kafkaConsumerProperties;
+    private final NotificationService notificationService;
 
     public UserController(UserRepository userRepository, KafkaAdminService kafkaAdminService,
-                          KafkaProperties kafkaProperties) {
+                          KafkaProperties kafkaProperties, NotificationService notificationService) {
         this.userRepository = userRepository;
         this.kafkaAdminService = kafkaAdminService;
         this.kafkaConsumerProperties = kafkaProperties.buildConsumerProperties(null);
+        this.notificationService = notificationService;
     }
 
     @PostMapping("/login")
     public ResponseEntity<User> login(@RequestBody User loginRequest) {
         boolean isNewUser = userRepository.findByUsername(loginRequest.getUsername()).isEmpty();
-
         User user = new User(
                 loginRequest.getUsername(),
                 loginRequest.getLatitude(),
@@ -49,11 +51,10 @@ public class UserController {
                 loginRequest.getCommunicationRadiusKm()
         );
         userRepository.save(user);
-
         if (isNewUser) {
             kafkaAdminService.createTopic("user-inbox-" + user.getUsername());
         }
-
+        notificationService.notifyAllOnlineUsersOfUpdate(user.getUsername());
         return ResponseEntity.ok(user);
     }
 
@@ -64,6 +65,19 @@ public class UserController {
                     user.setLatitude(location.get("latitude"));
                     user.setLongitude(location.get("longitude"));
                     userRepository.save(user);
+                    notificationService.notifyContactsOfUpdate(username);
+                    return new ResponseEntity<Void>(HttpStatus.OK);
+                })
+                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    }
+
+    @PutMapping("/{username}/radius")
+    public ResponseEntity<Void> updateRadius(@PathVariable String username, @RequestBody Map<String, Double> payload) {
+        return userRepository.findByUsername(username)
+                .map(user -> {
+                    user.setCommunicationRadiusKm(payload.get("radius"));
+                    userRepository.save(user);
+                    notificationService.notifyContactsOfUpdate(username);
                     return new ResponseEntity<Void>(HttpStatus.OK);
                 })
                 .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
@@ -114,7 +128,7 @@ public class UserController {
         return userRepository.findByUsername(username)
                 .map(currentUser -> {
                     List<ContactDTO> contacts = currentUser.getContacts().stream()
-                            .map(contactUsername -> userRepository.findByUsername(contactUsername))
+                            .map(userRepository::findByUsername)
                             .filter(java.util.Optional::isPresent)
                             .map(java.util.Optional::get)
                             .map(contactUser -> {
@@ -178,14 +192,4 @@ public class UserController {
                 .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @PutMapping("/{username}/radius")
-    public ResponseEntity<Void> updateRadius(@PathVariable String username, @RequestBody Map<String, Double> payload) {
-        return userRepository.findByUsername(username)
-                .map(user -> {
-                    user.setCommunicationRadiusKm(payload.get("radius"));
-                    userRepository.save(user);
-                    return new ResponseEntity<Void>(HttpStatus.OK);
-                })
-                .orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
-    }
 }
